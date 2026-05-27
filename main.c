@@ -38,6 +38,9 @@ typedef struct {
     GIOChannel *ssh_err;
 } AppState;
 
+/* EN: Append a formatted line to the log view and keep it scrolled to the end.
+ * DE: Formatierte Zeile ins Log schreiben und ans Ende scrollen.
+ */
 static void append_log(AppState *app, const char *fmt, ...) {
     GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->log_view));
     GtkTextIter end;
@@ -55,6 +58,9 @@ static void append_log(AppState *app, const char *fmt, ...) {
     gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(app->log_view), &end, 0.0, FALSE, 0, 0);
 }
 
+/* EN: Derive a deterministic port from the username.
+ * DE: Einen deterministischen Port aus dem Benutzernamen ableiten.
+ */
 static int compute_port_for_user(const char *user) {
     int port = BASE_PORT;
     for (const unsigned char *p = (const unsigned char *)user; *p; ++p) port += *p;
@@ -62,6 +68,9 @@ static int compute_port_for_user(const char *user) {
     return port;
 }
 
+/* EN: Trim and normalize a literal IP string, removing IPv6 brackets and zone.
+ * DE: IP-Literal trimmen und normalisieren, IPv6-Klammern und Zone entfernen.
+ */
 static bool normalize_ip_literal(const char *in, char *out, size_t out_sz) {
     if (!in || !out || out_sz == 0) return false;
     while (*in && isspace((unsigned char)*in)) in++;
@@ -80,6 +89,27 @@ static bool normalize_ip_literal(const char *in, char *out, size_t out_sz) {
     return out[0] != '\0';
 }
 
+/* EN: Parse a numeric port string and validate range.
+ * DE: Port-String numerisch parsen und Bereich validieren.
+ */
+static bool parse_port(const char *text, int *out_port) {
+    if (!text || !*text || !out_port) return false;
+
+    errno = 0;
+    char *end = NULL;
+    long val = strtol(text, &end, 10);
+    if (errno != 0) return false;
+    while (end && isspace((unsigned char)*end)) end++;
+    if (end && *end != '\0') return false;
+    if (val < 1 || val > 65535) return false;
+
+    *out_port = (int)val;
+    return true;
+}
+
+/* EN: Use ping/ping6 to give quick reachability feedback.
+ * DE: Mit ping/ping6 eine schnelle Erreichbarkeitsmeldung geben.
+ */
 static bool check_host_reachable(const char *host, AppState *app) {
     char cmd[512];
     char normalized[BUF_SIZE];
@@ -105,6 +135,9 @@ static bool check_host_reachable(const char *host, AppState *app) {
     }
 }
 
+/* EN: Attempt a TCP connect within a timeout.
+ * DE: TCP-Verbindung mit Timeout versuchen.
+ */
 static int try_connect(const char *host_input, int port, int timeout_sec) {
     char host[BUF_SIZE];
     if (!normalize_ip_literal(host_input, host, sizeof(host))) return 0;
@@ -168,6 +201,9 @@ static int try_connect(const char *host_input, int port, int timeout_sec) {
     return 0;
 }
 
+/* EN: Stop a child process and close its PID when possible.
+ * DE: Kindprozess beenden und PID freigeben, wenn moeglich.
+ */
 static void stop_process(GPid *pid, const char *label, AppState *app, bool has_watch) {
     if (*pid <= 0) return;
     append_log(app, "%s wird beendet (PID=%d)...", label, (int)*pid);
@@ -179,6 +215,9 @@ static void stop_process(GPid *pid, const char *label, AppState *app, bool has_w
     }
 }
 
+/* EN: Stream child stdout/stderr into the log view line-by-line.
+ * DE: Kindprozess-Ausgabe zeilenweise ins Log schreiben.
+ */
 static gboolean handle_child_output(GIOChannel *source, GIOCondition cond, gpointer data) {
     AppState *app = data;
     if (cond & (G_IO_HUP | G_IO_ERR)) {
@@ -206,11 +245,17 @@ static gboolean handle_child_output(GIOChannel *source, GIOCondition cond, gpoin
     return TRUE;
 }
 
+/* EN: Release SSH I/O channels after a process ends.
+ * DE: SSH-I/O-Kanaele nach Prozessende freigeben.
+ */
 static void reset_channels(AppState *app) {
     if (app->ssh_out) { g_io_channel_unref(app->ssh_out); app->ssh_out = NULL; }
     if (app->ssh_err) { g_io_channel_unref(app->ssh_err); app->ssh_err = NULL; }
 }
 
+/* EN: Child watch callback for SSH exit.
+ * DE: Child-Watch-Callback fuer SSH-Ende.
+ */
 static void on_ssh_exit(GPid pid, gint status, gpointer data) {
     AppState *app = data;
     if (WIFEXITED(status)) {
@@ -227,6 +272,9 @@ static void on_ssh_exit(GPid pid, gint status, gpointer data) {
     gtk_widget_set_sensitive(app->btn_stop, FALSE);
 }
 
+/* EN: Start an ffmpeg MJPEG stream to the remote host.
+ * DE: Einen ffmpeg-MJPEG-Stream zum Zielhost starten.
+ */
 static bool start_camera(AppState *app, const char *ip_input, int cam_port, const char *dev) {
     if (cam_port <= 0) return true;
 
@@ -269,6 +317,9 @@ static bool start_camera(AppState *app, const char *ip_input, int cam_port, cons
     return true;
 }
 
+/* EN: Start SSH with non-interactive options and capture output.
+ * DE: SSH nicht-interaktiv starten und Ausgabe erfassen.
+ */
 static bool start_ssh(AppState *app, const char *user, const char *ip_input, int port) {
     char ip[BUF_SIZE];
     if (!normalize_ip_literal(ip_input, ip, sizeof(ip))) {
@@ -324,6 +375,9 @@ static bool start_ssh(AppState *app, const char *user, const char *ip_input, int
     return true;
 }
 
+/* EN: Connect button handler.
+ * DE: Handler fuer Verbinden-Button.
+ */
 static void on_connect(GtkButton *btn, gpointer user_data) {
     (void)btn;
     AppState *app = user_data;
@@ -345,17 +399,27 @@ static void on_connect(GtkButton *btn, gpointer user_data) {
         return;
     }
 
-    int port = (*port_txt) ? atoi(port_txt) : compute_port_for_user(user);
-    if (port <= 0 || port > 65535) {
-        append_log(app, "Ungültiger Port.");
-        return;
+    int port = 0;
+    if (*port_txt) {
+        if (!parse_port(port_txt, &port)) {
+            append_log(app, "Ungueltiger Port.");
+            return;
+        }
+    } else {
+        port = compute_port_for_user(user);
+        if (port <= 0 || port > 65535) {
+            append_log(app, "Ungueltiger Port.");
+            return;
+        }
     }
 
-    int cam_port = (*cam_port_txt) ? atoi(cam_port_txt) : 0;
+    int cam_port = 0;
     bool camera_enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->check_camera));
-    if (camera_enabled && (cam_port <= 0 || cam_port > 65535)) {
-        append_log(app, "Ungültiger Kamera-Port.");
-        return;
+    if (camera_enabled) {
+        if (!parse_port(cam_port_txt, &cam_port)) {
+            append_log(app, "Ungueltiger Kamera-Port.");
+            return;
+        }
     }
 
     append_log(app, "Prüfe Host %s ...", ip);
@@ -386,6 +450,9 @@ static void on_connect(GtkButton *btn, gpointer user_data) {
     }
 }
 
+/* EN: Stop button handler.
+ * DE: Handler fuer Stop-Button.
+ */
 static void on_stop(GtkButton *btn, gpointer user_data) {
     (void)btn;
     AppState *app = user_data;
@@ -396,6 +463,9 @@ static void on_stop(GtkButton *btn, gpointer user_data) {
     gtk_widget_set_sensitive(app->btn_stop, FALSE);
 }
 
+/* EN: Window destroy handler.
+ * DE: Handler fuer Fenster-Schliessen.
+ */
 static void on_destroy(GtkWidget *w, gpointer user_data) {
     (void)w;
     AppState *app = user_data;
@@ -405,6 +475,9 @@ static void on_destroy(GtkWidget *w, gpointer user_data) {
     gtk_main_quit();
 }
 
+/* EN: Build a text entry with optional placeholder and initial text.
+ * DE: Textfeld mit optionalem Platzhalter und Starttext erstellen.
+ */
 static GtkWidget *build_entry(const char *placeholder, const char *text) {
     GtkWidget *entry = gtk_entry_new();
     if (placeholder) gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
