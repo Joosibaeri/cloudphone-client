@@ -1,0 +1,22 @@
+# Build outputs
+/main
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Debugging and tooling
+*.d
+*.log
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
